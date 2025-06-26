@@ -84,8 +84,16 @@ export async function createSalesforceConnection(config?: ConnectionConfig) {
       // Create connection with the access token
       const conn = new jsforce.Connection({
         instanceUrl: tokenResponse.instance_url,
-        accessToken: tokenResponse.access_token
+        accessToken: tokenResponse.access_token,
+        version: '59.0'  // Explicitly set API version
       });
+      
+      // Test the connection to ensure it's working
+      console.error('Testing Salesforce OAuth connection...');
+      await conn.query('SELECT Id FROM User LIMIT 1');
+      console.error('Salesforce OAuth connection test successful');
+      
+      return conn;
       
       return conn;
     } else {
@@ -101,16 +109,50 @@ export async function createSalesforceConnection(config?: ConnectionConfig) {
       console.error('Connecting to Salesforce using Username/Password authentication');
       
       // Create connection with login URL
-      const conn = new jsforce.Connection({ loginUrl });
+      const conn = new jsforce.Connection({ 
+        loginUrl,
+        version: '59.0'  // Explicitly set API version
+      });
       
       await conn.login(
         username,
         password + (token || '')
       );
       
+      // Test the connection to ensure it's working
+      console.error('Testing Salesforce connection...');
+      await conn.query('SELECT Id FROM User LIMIT 1');
+      console.error('Salesforce connection test successful');
+      
       return conn;
     }
   } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    
+    // Handle specific HTTP 405 error
+    if (errorMessage.includes('405') && errorMessage.includes('Only POST allowed')) {
+      console.error('HTTP 405 error detected. This usually indicates an API version or endpoint issue.');
+      console.error('Trying with a different API version...');
+      
+      try {
+        // Try with an older API version
+        const conn = new jsforce.Connection({ 
+          loginUrl,
+          version: '58.0'
+        });
+        
+        await conn.login(
+          process.env.SALESFORCE_USERNAME!,
+          process.env.SALESFORCE_PASSWORD! + (process.env.SALESFORCE_TOKEN || '')
+        );
+        
+        console.error('Successfully connected with API version 58.0');
+        return conn;
+      } catch (retryError) {
+        console.error('Retry with API version 58.0 also failed:', retryError);
+      }
+    }
+    
     console.error('Error connecting to Salesforce:', error);
     throw error;
   }
